@@ -1,0 +1,5 @@
+# BEWARE
+
+To compute slices, this library relies on having a spec for functions and methods in order to know when those calls have a side-effect. A function/method has a side effect on a parameter `x` if it updates a field of the parameter (`x.f = ...`), if it updates an element of the parameter (`x[i] = ...`), or if it passes `x` to some other function/method that has a side-effect. 
+
+Of course, writing these specs by hand for every Python library would be extremely tedious. This directory contains a rudimentary utility to write these automatically. Generating these specs in a fully automatic way for Python is ultimately an undecidable problem. Because Python does not require type annotations, even resolving which method is being called is challenging. Even worse, many Python functions are in fact implemented in C, which would require its own analysis tool for that language. In short, this utility will never be perfect. The goal is to reduce the clerical work of writing out the specs, which can then be hand-corrected as necessary.
