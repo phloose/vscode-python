@@ -1,5 +1,4 @@
-import { CellSlice, DataflowAnalyzer, ExecutionLogSlicer } from '@msrvida/python-program-analysis';
-import { Cell as IGatherCell } from '@msrvida/python-program-analysis/dist/es5/cell';
+import { Cell as IGatherCell, CellSlice, DataflowAnalyzer, ExecutionLogSlicer } from '../../../python-program-analysis/src';
 
 import { inject, injectable } from 'inversify';
 import { IApplicationShell, ICommandManager } from '../../common/application/types';

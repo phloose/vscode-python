@@ -6,6 +6,11 @@
         "tslint-eslint-rules",
         "tslint-microsoft-contrib"
     ],
+    "linterOptions": {
+        "exclude": [
+            "./src/python-program-analysis/**/*"
+        ]
+    },
     "rules": {
         "messages-must-be-localized": true,
         "no-unused-expression": true,

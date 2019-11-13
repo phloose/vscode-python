@@ -36,6 +36,17 @@
             "problemMatcher": []
         },
         {
+            "label": "Build Gather dependencies",
+            "type": "npm",
+            "script": "build-gather-deps",
+            "isBackground": false,
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "Run Unit Tests",
             "type": "npm",
             "script": "test:unittests",
