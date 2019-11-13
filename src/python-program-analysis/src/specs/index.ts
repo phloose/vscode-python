@@ -11,7 +11,7 @@ export interface FunctionSpec {
     updates?: (string | number)[];
     reads?: string[];
     returns?: string;
-    returnsType?: TypeSpec<FunctionSpec>;
+    returnsType?: PythonType;
     higherorder?: number;
 }
 
@@ -25,6 +25,15 @@ export function isFunctionSpec(fd: FunctionDescription): fd is FunctionSpec {
     return typeof fd !== 'string';
 }
 
+export type PythonType = ListType | ClassType;
+
+export class ListType {
+    constructor(public elementType: PythonType) { }
+}
+
+export class ClassType {
+    constructor(public spec: TypeSpec<FunctionSpec>) { }
+}
 
 export interface TypeSpec<FD> {
     methods?: FD[];

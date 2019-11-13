@@ -5,15 +5,35 @@ import process from 'process';
 import path from 'path';
 import { ModuleSpec, JsonSpecs, FunctionDescription, ModuleMap, getFunctionName } from '../specs';
 import * as py from '../python-parser';
-import { ModuleSpecWalker } from './moduleSpecWalker';
+import { ModuleSpecWalker, HeuristicTransitiveClosure } from './moduleSpecWalker';
+import { printNode } from '..';
 
+// USAGE: node main.js [directory] [filename]
+
+console.error(process.argv.join(' '));
 if (process.argv.length < 3) {
-    console.log('requires a directory');
-} else {
-    const spec = {};
-    specModule(process.argv[2], spec);
-    console.log(JSON.stringify(spec, null, 2));
+    console.error('requires a directory');
+    process.exit();
 }
+const dir = process.argv[2];
+// tslint:disable-next-line: non-literal-fs-path
+if (!fs.existsSync(dir)) {
+    console.error(`${dir} does not exist`);
+    process.exit();
+}
+// tslint:disable-next-line: non-literal-fs-path
+if (!fs.lstatSync(dir).isDirectory()) {
+    console.error(`${dir} is not a directory`);
+    process.exit();
+}
+
+const spec = {};
+specModule(dir, spec);
+const filename = process.argv.length > 3 ? process.argv[3] : path.join(path.basename(dir), '.json');
+const contents = JSON.stringify(spec, null, 2);
+// tslint:disable-next-line: non-literal-fs-path
+fs.writeFileSync(filename, contents, { encoding: 'UTF8' });
+
 
 
 function createSpecForPythonFile(path: string): ModuleSpec<FunctionDescription> {
@@ -29,7 +49,10 @@ function createSpecForPythonFile(path: string): ModuleSpec<FunctionDescription> 
     }
     const modSpecWalker = new ModuleSpecWalker();
     py.walk(ast, modSpecWalker);
-    return modSpecWalker.spec;
+    const modspec = modSpecWalker.spec;
+    const closureWalker = new HeuristicTransitiveClosure(modspec);
+    py.walk(ast, closureWalker);
+    return modspec;
 }
 
 function handleInitFile(path: string, mySpec: ModuleSpec<FunctionDescription>, modules: ModuleMap<FunctionDescription>) {
@@ -43,15 +66,12 @@ function handleInitFile(path: string, mySpec: ModuleSpec<FunctionDescription>, m
         console.error(`cannot parse ${path}: ${e}`);
         return {};
     }
-    for (const imp of ast.code.filter(n => n.type === py.IMPORT) as py.Import[]) {
-        if (imp.names) {
-            // TODO: handle this
-        }
-    }
     for (const frm of ast.code.filter(n => n.type === py.FROM) as py.From[]) {
         const modname = frm.base.startsWith('.') ? frm.base.slice(1) : frm.base;
         // TODO: deal with .. paths
-        const modspec = modules[modname];
+        const parts = modname.split('.');
+        const modspec: ModuleSpec<FunctionDescription> = parts.slice(1)
+            .reduce((spec, name) => spec && spec[name] ? spec[name].modules : undefined, modules[parts[0]]);
         if (modspec) {
             for (const imp of frm.imports) {
                 if (modspec.modules && modspec.modules[imp.path]) {
@@ -70,7 +90,7 @@ function handleInitFile(path: string, mySpec: ModuleSpec<FunctionDescription>, m
                         }
                     }
                 } else {
-                    console.error(`*** could not find ${imp.path}: `, printNode(frm));
+                    console.error(`*** ${path} could not find ${imp.path}: `, printNode(frm));
                 }
             }
         }

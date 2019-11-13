@@ -1,6 +1,7 @@
 //@ts-nocheck
 
 import * as ast from './python-parser';
+import { Dataflow } from './data-flow';
 import { Set } from './set';
 import { printNode } from './printNode';
 
@@ -16,7 +17,6 @@ export class Block {
         return (
             `BLOCK ${this.id} (${this.hint})\n` +
             this.statements
-                // @ts-ignore: Gather workaround
                 .map(s => `${s.location.first_line}: ${printNode(s)}`)
                 .join('\n')
         );
@@ -255,7 +255,6 @@ export class ControlFlowGraph {
         const afterTry = this.makeBlock('try join');
         let exnContext = context;
         let handlerExits: Block[] = [];
-        // @ts-ignore: Gather workaround
         let handlerHead: Block = undefined;
         if (statement.excepts) {
             handlerHead = this.makeBlock('handlers');
@@ -515,12 +514,9 @@ export class ControlFlowGraph {
                     let item = workQueue.pop();
                     // A branch's successor might be a join point. These aren't dependencies.
                     if (this.postdominatorExists(block, item)) continue;
-                    // @ts-ignore: Gather workaround
                     if (!frontiers.hasOwnProperty(item.id)) {
-                        // @ts-ignore: Gather workaround
                         frontiers[item.id] = new BlockSet();
                     }
-                    // @ts-ignore: Gather workaround
                     let frontier = frontiers[item.id];
                     frontier.add(block);
                     let immediatePostdominator = this.getImmediatePostdominator(item);

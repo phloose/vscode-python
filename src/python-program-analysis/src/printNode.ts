@@ -19,7 +19,7 @@ function printTabbed(node: SyntaxNode, tabLevel: number): string {
                 commaSep(node.sources)
             );
         case 'binop':
-            return '(' + printNode(node.left) + node.op + printNode(node.right) + ')';
+            return '(' + printNode(node.left) + ' ' + node.op + ' ' + printNode(node.right) + ')';
         case 'break':
             return tabs + 'break';
         case 'call':
@@ -60,6 +60,8 @@ function printTabbed(node: SyntaxNode, tabLevel: number): string {
                 '):' +
                 lines(node.code, tabLevel + 1)
             );
+        case 'del':
+            return 'del ' + node.targets.map(printNode).join(comma)
         case 'dict':
             return '{' + node.entries.map(e => e.k + ':' + e.v) + '}';
         case 'dot':

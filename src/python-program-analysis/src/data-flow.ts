@@ -2,9 +2,11 @@
 
 import * as ast from './python-parser';
 import { Block, ControlFlowGraph } from './control-flow';
-import { Set } from './set';
-import { DefaultSpecs, JsonSpecs, FunctionSpec, TypeSpec } from './specs';
+import { Set, StringSet } from './set';
+import { DefaultSpecs, JsonSpecs, FunctionSpec, TypeSpec, getFunctionName, PythonType, ClassType, ListType } from './specs';
 import { SymbolTable } from './symbol-table';
+import { log } from './logutil';
+import { printNode } from './printNode';
 
 
 class DefUse {
@@ -47,17 +49,13 @@ class DefUse {
         for (let level of Object.keys(ReferenceType)) {
 
             let genSet = new RefSet();
-            // @ts-ignore: Gather workaround
             for (let genLevel of GEN_RULES[level]) {
-                // @ts-ignore: Gather workaround
                 genSet = genSet.union(newRefs[genLevel]);
             }
-            // @ts-ignore: Gather workaround
             const killSet = this[level].filter(def =>
                 genSet.items.some(gen =>
                     gen.name == def.name && KILL_RULES[gen.level].indexOf(def.level) != -1));
 
-            // @ts-ignore: Gather workaround
             this[level] = this[level].minus(killSet).union(genSet);
         }
     }
@@ -73,9 +71,7 @@ class DefUse {
         let refsDefined = new RefSet();
         let newFlows = new Set<Dataflow>(getDataflowId);
         for (let level of Object.keys(ReferenceType)) {
-            // @ts-ignore: Gather workaround
             for (let to of toSet[level].items) {
-                // @ts-ignore: Gather workaround
                 for (let from of fromSet[level].items) {
                     if (from.name == to.name) {
                         refsDefined.add(to);
@@ -100,13 +96,15 @@ export class DataflowAnalyzer {
     }
 
     getDefUseForStatement(statement: ast.SyntaxNode, defsForMethodResolution: RefSet): DefUse {
-        // @ts-ignore: Gather workaround
         let cacheKey = ast.locationString(statement.location);
         const cached = this._defUsesCache[cacheKey];
         if (cached) { return cached; }
 
+        log('STATEMENT ', printNode(statement));
         let defSet = this.getDefs(statement, defsForMethodResolution);
+        defSet.items.forEach(def => log('  DEF ', def.name, def.level, def.inferredType ? 'has type' : ''));
         let useSet = this.getUses(statement);
+        useSet.items.forEach(use => log('  USE ', use.name, use.level, use.inferredType ? 'has type' : ''));
         let result = new DefUse(
             defSet.filter(r => r.level === ReferenceType.DEFINITION),
             defSet.filter(r => r.level === ReferenceType.UPDATE),
@@ -122,7 +120,6 @@ export class DataflowAnalyzer {
         let dataflows = new Set<Dataflow>(getDataflowId);
         let defUsePerBlock = new Map(workQueue.map(block => [block.id, new DefUse()]));
         if (refSet) {
-            // @ts-ignore: Gather workaround
             defUsePerBlock.get(cfg.blocks[0].id).update(new DefUse(refSet));
         }
 
@@ -130,10 +127,8 @@ export class DataflowAnalyzer {
             const block = workQueue.pop();
             let initialBlockDefUse = defUsePerBlock.get(block.id);
             let blockDefUse = cfg.getPredecessors(block)
-                // @ts-ignore: Gather workaround
                 .reduce((defuse, predBlock) => defuse.union(defUsePerBlock.get(predBlock.id)), initialBlockDefUse);
 
-            // @ts-ignore: Gather workaround
             for (let statement of block.statements) {
                 let statementDefUse = this.getDefUseForStatement(statement, blockDefUse.defs);
                 let [newFlows, definedRefs] = statementDefUse.createFlowsFrom(blockDefUse);
@@ -142,9 +137,7 @@ export class DataflowAnalyzer {
                 blockDefUse.update(statementDefUse);
             }
 
-            // @ts-ignore: Gather workaround
             if (!initialBlockDefUse.equals(blockDefUse)) {
-                // @ts-ignore: Gather workaround
                 defUsePerBlock.set(block.id, blockDefUse);
                 // We've updated this block's info, so schedule its successor blocks.
                 for (let succ of cfg.getSuccessors(block)) {
@@ -195,21 +188,18 @@ export class DataflowAnalyzer {
             type: SymbolType.CLASS,
             level: ReferenceType.DEFINITION,
             name: classDecl.name,
-            // @ts-ignore: Gather workaround
             location: classDecl.location,
             node: classDecl,
         });
     }
 
     private getFuncDefs(funcDecl: ast.Def, defsForMethodResolution: RefSet) {
-        // @ts-ignore: Gather workaround
         runAnalysis(ParameterSideEffectAnalysis, defsForMethodResolution, funcDecl, this._symbolTable);
 
         return new RefSet({
             type: SymbolType.FUNCTION,
             level: ReferenceType.DEFINITION,
             name: funcDecl.name,
-            // @ts-ignore: Gather workaround
             location: funcDecl.location,
             node: funcDecl,
         });
@@ -240,7 +230,6 @@ export class DataflowAnalyzer {
 
     private getImportDefs(imprt: ast.Import) {
         imprt.names.forEach(imp => {
-            // @ts-ignore: Gather workaround
             const spec = this._symbolTable.importModule(imp.path, imp.alias);
         });
         return new RefSet(...imprt.names.map(nameNode => {
@@ -270,7 +259,6 @@ export class DataflowAnalyzer {
 
     private getNameUses(statement: ast.SyntaxNode) {
         const usedNames = gatherNames(statement);
-        // @ts-ignore: Gather workaround
         return new RefSet(...usedNames.items.map(([name, node]) => {
             return {
                 type: SymbolType.VARIABLE,
@@ -353,7 +341,7 @@ export interface Ref {
     type: SymbolType;
     level: ReferenceType;
     name: string;
-    inferredType?: TypeSpec<FunctionSpec>;
+    inferredType?: PythonType;
     location: ast.Location;
     node: ast.SyntaxNode;
 }
@@ -483,7 +471,7 @@ class ApiCallAnalysis extends AnalysisWalker {
         super(statement, symbolTable);
     }
 
-    onEnterNode(node: ast.SyntaxNode, _ancestors: ast.SyntaxNode[]) {
+    onEnterNode(node: ast.SyntaxNode, ancestors: ast.SyntaxNode[]) {
         if (node.type !== ast.CALL) { return; }
 
         let funcSpec: FunctionSpec;
@@ -501,9 +489,9 @@ class ApiCallAnalysis extends AnalysisWalker {
                 if (ref) {
                     // The lefthand side of the dot is a variable we're tracking, so it's a method call.
                     const receiverType = ref.inferredType;
-                    if (receiverType) {
+                    if (receiverType && receiverType instanceof ClassType) {
                         const funcName: string = func.name;
-                        funcSpec = receiverType.methods.find(m => m.name === funcName);
+                        funcSpec = receiverType.spec.methods.find(m => m.name === funcName);
                     }
                 }
             }
@@ -517,6 +505,7 @@ class ApiCallAnalysis extends AnalysisWalker {
         }
 
         if (funcSpec) {
+            log(`  - found spec for call ${printNode(func)}, updates:`, funcSpec.updates);
             if (funcSpec.updates && funcSpec.updates.length) {
                 funcSpec.updates.forEach(paramName => {
                     const position = typeof paramName === 'string' ? parseInt(paramName) : paramName;
@@ -541,6 +530,7 @@ class ApiCallAnalysis extends AnalysisWalker {
             }
             // otherwise, there are no updates, so it's a func with no side effects
         } else {
+            log(`  - no spec for call ${printNode(func)}`);
             // We couldn't find a spec, so be conservative.
             // If we don't know what the call does, we assume that it mutates its arguments.
             node.args.forEach(arg => {
@@ -622,18 +612,32 @@ class TargetsDefListener extends AnalysisWalker {
                 ast.walk(target, this);
             }
         }
-        assign.sources.forEach((source, i) => {
+        let targets = [...assign.targets];
+        for (const source of assign.sources) {
             if (source.type === ast.CALL) {
                 const spec = symbolTable.lookupNode(source.func);
-                const target = assign.targets[i];
-                if (spec && target && target.type === ast.NAME) {
-                    const def = this.defs.items.find(d => d.name === target.id);
-                    if (def) {
-                        def.inferredType = spec.returnsType;
+                if (!spec) { return; }
+                if (spec.returns && spec.returnsType instanceof ListType) {
+                    const eltType = spec.returnsType.elementType;
+                    for (const target of targets) {
+                        this.assignType(target, eltType);
                     }
+                } else {
+                    const target = targets[0];
+                    targets = targets.slice(1);
+                    this.assignType(target, spec.returnsType);
                 }
             }
-        });
+        }
+    }
+
+    private assignType(target: ast.SyntaxNode, type: PythonType) {
+        if (target && target.type === ast.NAME) {
+            const def = this.defs.items.find(d => d.name === target.id);
+            if (def) {
+                def.inferredType = type;
+            }
+        }
     }
 
     onEnterNode(target: ast.SyntaxNode, ancestors: ast.SyntaxNode[]) {
@@ -694,7 +698,7 @@ class ParameterSideEffectAnalysis extends AnalysisWalker {
         });
     }
 
-    onEnterNode(statement: ast.SyntaxNode, _ancestors: ast.SyntaxNode[]) {
+    onEnterNode(statement: ast.SyntaxNode, ancestors: ast.SyntaxNode[]) {
         switch (statement.type) {
             case ast.ASSIGN:
                 for (let target of statement.targets) {

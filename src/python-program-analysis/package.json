@@ -23,7 +23,8 @@
 		"test": "karma start src/test/karma.conf.js",
 		"test:debug": "karma start src/test/karma.debug.conf.js",
 		"watch": "tsc -watch -p ./",
-		"webpack": "webpack"
+		"webpack": "webpack",
+		"genspec": "node dist/es5/genspec/main.js"
 	},
 	"devDependencies": {
 		"@types/chai": "^4.1.4",
