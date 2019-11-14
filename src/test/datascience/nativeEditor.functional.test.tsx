@@ -66,6 +66,7 @@ import {
     waitForMessage,
     waitForMessageResponse
 } from './testHelpers';
+import { min } from 'lodash';
 
 use(chaiAsPromised);
 
@@ -1291,78 +1292,36 @@ for _ in range(50):
         });
 
         suite('Clear Outputs', () => {
-            let controller: NativeEditorStateController;
-            // let windowStateChangeHandlers: ((e: WindowState) => any)[] = [];
-            let handleMessageSpy: sinon.SinonSpy<[string, any?], boolean>;
             setup(async function() {
-                handleMessageSpy = sinon.spy(NativeEditorStateController.prototype, 'handleMessage');
                 initIoc();
-
-                // windowStateChangeHandlers = [];
-                // Keep track of all handlers for the onDidChangeWindowState event.
-                // ioc.applicationShell.setup(app => app.onDidChangeWindowState(TypeMoq.It.isAny())).callback(cb => windowStateChangeHandlers.push(cb));
-
                 // tslint:disable-next-line: no-invalid-this
                 await setupFunction.call(this);
-
-                controller = (wrapper
-                    .find(NativeEditor)
-                    .first()
-                    .instance() as NativeEditor).stateController;
             });
-            teardown(() => sinon.restore());
 
-            /**
-             * Wait for a particular message to be received by the editor component.
-             * If message isn't reiceived within a time out, then reject with a timeout error message.
-             *
-             * @param {string} message
-             * @param {number} timeout
-             * @returns {Promise<void>}
-             */
-            async function waitForMessageReceivedEditorComponent(message: string, timeout: number = 5000): Promise<void> {
-                const errorMessage = `Timeout waiting for message ${message}`;
-                await waitForCondition(async () => handleMessageSpy.calledWith(message, sinon.match.any), timeout, errorMessage);
+            function verifyExecutionCount(cellIndex: number, executionCountContent: string) {
+                const foundResult = wrapper.find('NativeCell');
+                assert.ok(foundResult.length >= 1, 'Didn\'t find any cells being rendered');
+                const targetCell = foundResult.at(cellIndex);
+                assert.ok(targetCell!, 'Target cell doesn\'t exist');
+
+                const sliced = executionCountContent.substr(0, min([executionCountContent.length, 100]));
+                const output = targetCell!.find('div.execution-count');
+                assert.ok(output.length > 0, 'No output cell found');
+                const outHtml = output.html();
+                assert.ok(outHtml.includes(sliced), `${outHtml} does not contain ${sliced}`);
             }
 
-            /**
-             * Wait for notebook to be marked as dirty (within a timeout of 5s).
-             *
-             * @param {boolean} [dirty=true]
-             * @returns {Promise<void>}
-             */
-            async function waitForNotebookToBeDirty(): Promise<void> {
-                // Wait for the notebook to be marked as dirty (the NotebookDirty message will be sent).
-                await waitForMessageReceivedEditorComponent(InteractiveWindowMessages.NotebookDirty, 5_000);
-                // Wait for the state to get updated.
-                await waitForCondition(async () => controller.getState().dirty === true, 1_000, `Timeout waiting for dirty state to get updated to true`);
-            }
-
-            /**
-             * Wait for notebook to be marked as clean (within a timeout of 5s).
-             *
-             * @param {boolean} [dirty=true]
-             * @returns {Promise<void>}
-             */
-            async function waitForNotebookToBeClean(): Promise<void> {
-                // Wait for the notebook to be marked as dirty (the NotebookDirty message will be sent).
-                await waitForMessageReceivedEditorComponent(InteractiveWindowMessages.NotebookClean, 5_000);
-
-                // Wait for the state to get updated.
-                await waitForCondition(async () => controller.getState().dirty === false, 2_000, `Timeout waiting for dirty state to get updated to false`);
-            }
-
-            runMountedTest('Clear Outputs in HTML', async () => {
+            test('Clear Outputs in HTML', async () => {
                 // Run all Cells
-                // const baseFile = [ {id: 'NotebookImport#0', data: {source: 'a=1\na'}},
-                // {id: 'NotebookImport#1', data: {source: 'b=2\nb'}},
-                // {id: 'NotebookImport#2', data: {source: 'c=3\nc'}}];
-                // const runAllCells =  baseFile.map(cell => {
-                //     return createFileCell(cell, cell.data);
-                // });
+                const baseFile2 = [ {id: 'NotebookImport#0', data: {source: 'a=1\na'}},
+                {id: 'NotebookImport#1', data: {source: 'b=2\nb'}},
+                {id: 'NotebookImport#2', data: {source: 'c=3\nc'}}];
+                const runAllCells =  baseFile2.map(cell => {
+                    return createFileCell(cell, cell.data);
+                });
 
-                // const notebook = await ioc.get<INotebookExporter>(INotebookExporter).translateToNotebook(runAllCells, undefined);
-                // await openEditor(ioc, JSON.stringify(notebook));
+                const notebook = await ioc.get<INotebookExporter>(INotebookExporter).translateToNotebook(runAllCells, undefined);
+                await openEditor(ioc, JSON.stringify(notebook));
 
                 const runAllButton = findButton(wrapper, NativeEditor, 0);
                 await waitForMessageResponse(ioc, () => runAllButton!.simulate('click'));
@@ -1377,40 +1336,30 @@ for _ in range(50):
                 const clearAllOutputButton = findButton(wrapper, NativeEditor, 6);
                 await waitForMessageResponse(ioc, () => clearAllOutputButton!.simulate('click'));
 
+                await waitForUpdate(wrapper, NativeEditor, 1);
+
                 verifyHtmlOnCell(wrapper, 'NativeCell', undefined, 0);
                 verifyHtmlOnCell(wrapper, 'NativeCell', undefined, 1);
                 verifyHtmlOnCell(wrapper, 'NativeCell', undefined, 2);
-            }, () => { return ioc; });
 
-            runMountedTest('Clear Outputs in File', async () => {
-                // Create an editor so something is listening to messages
+                verifyExecutionCount(0, '-');
+                verifyExecutionCount(1, '-');
+                verifyExecutionCount(2, '-');
+            });
+
+            test('Clear Outputs in File', async () => {
                 const editor = await createNewEditor(ioc);
 
-                // Add a cell into the UI and wait for it to render
                 await addCell(wrapper, ioc, 'a=1\na');
-                // await waitForNotebookToBeDirty();
-                // const notebookFileContents = await fs.readFile(notebookFile.filePath, 'utf8');
                 simulateKeyPressOnCell(1, { code: 's', ctrlKey: true });
                 const fileContent = await fs.readFile(editor.file.path, 'utf8');
-
-                // const runAllButton = findButton(wrapper, NativeEditor, 0);
-                // await waitForMessageResponse(ioc, () => runAllButton!.simulate('click'));
-
-                // await waitForUpdate(wrapper, NativeEditor, 1);
 
                 const clearAllOutputButton = findButton(wrapper, NativeEditor, 6);
                 await waitForMessageResponse(ioc, () => clearAllOutputButton!.simulate('click'));
 
-                // check editor
-                // At this point a message should be sent to extension asking it to save.
-                // After the save, the extension should send a message to react letting it know that it was saved successfully.
-
-                // await waitForNotebookToBeClean();
-                // Confirm file has been updated as well.
-                // const newFileContents = await fs.readFile(notebookFile.filePath, 'utf8');
                 const newFileContent = await fs.readFile(editor.file.path, 'utf8');
                 assert.notEqual(newFileContent, fileContent, 'File did not change.');
-            }, () => { return ioc; });
+            });
         });
     });
 });
