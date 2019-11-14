@@ -6,12 +6,12 @@ import * as chaiAsPromised from 'chai-as-promised';
 import { ReactWrapper } from 'enzyme';
 import { EventEmitter } from 'events';
 import * as fs from 'fs-extra';
+import { min } from 'lodash';
 import * as path from 'path';
 import * as sinon from 'sinon';
 import { anything, when } from 'ts-mockito';
 import * as TypeMoq from 'typemoq';
 import { Disposable, TextDocument, TextEditor, Uri, WindowState } from 'vscode';
-
 import { IApplicationShell, IDocumentManager } from '../../client/common/application/types';
 import { IFileSystem } from '../../client/common/platform/types';
 import { createDeferred } from '../../client/common/utils/async';
@@ -34,39 +34,9 @@ import { IMonacoEditorState, MonacoEditor } from '../../datascience-ui/react-com
 import { waitForCondition } from '../common';
 import { DataScienceIocContainer } from './dataScienceIocContainer';
 import { MockDocumentManager } from './mockDocumentManager';
-import {
-    addCell,
-    closeNotebook,
-    createNewEditor,
-    focusCell,
-    getNativeCellResults,
-    mountNativeWebView,
-    openEditor,
-    runMountedTest,
-    setupWebview
-} from './nativeEditorTestHelpers';
+import { addCell, closeNotebook, createNewEditor, focusCell, getNativeCellResults, mountNativeWebView, openEditor, runMountedTest, setupWebview } from './nativeEditorTestHelpers';
 import { waitForUpdate } from './reactHelpers';
-import {
-    addContinuousMockData,
-    addMockData,
-    CellPosition,
-    createKeyboardEventForCell,
-    escapePath,
-    findButton,
-    getLastOutputCell,
-    getNativeFocusedEditor,
-    getOutputCell,
-    injectCode,
-    isCellFocused,
-    isCellSelected,
-    srcDirectory,
-    typeCode,
-    verifyCellIndex,
-    verifyHtmlOnCell,
-    waitForMessage,
-    waitForMessageResponse
-} from './testHelpers';
-import { min } from 'lodash';
+import { addContinuousMockData, addMockData, CellPosition, createKeyboardEventForCell, escapePath, findButton, getLastOutputCell, getNativeFocusedEditor, getOutputCell, injectCode, isCellFocused, isCellSelected, srcDirectory, typeCode, verifyCellIndex, verifyHtmlOnCell, waitForMessage, waitForMessageResponse } from './testHelpers';
 
 use(chaiAsPromised);
 
@@ -1348,16 +1318,36 @@ for _ in range(50):
             });
 
             test('Clear Outputs in File', async () => {
-                const editor = await createNewEditor(ioc);
+                const notebookProvider = ioc.get<INotebookEditorProvider>(INotebookEditorProvider);
+                const editor = notebookProvider.editors[0];
+                assert.ok(editor, 'No editor when saving');
+                let savedPromise = createDeferred();
+                let disp = editor.saved(() => savedPromise.resolve());
 
+                // add cells, run them and save
                 await addCell(wrapper, ioc, 'a=1\na');
+                const runAllButton = findButton(wrapper, NativeEditor, 0);
+                await waitForMessageResponse(ioc, () => runAllButton!.simulate('click'));
                 simulateKeyPressOnCell(1, { code: 's', ctrlKey: true });
-                const fileContent = await fs.readFile(editor.file.path, 'utf8');
 
+                await savedPromise.promise;
+                disp.dispose();
+
+                // the file has output and execution count
+                const fileContent = await fs.readFile(notebookFile.filePath, 'utf8');
+
+                savedPromise = createDeferred();
+                disp = editor.saved(() => savedPromise.resolve());
+
+                // press clear all outputs, and save
                 const clearAllOutputButton = findButton(wrapper, NativeEditor, 6);
                 await waitForMessageResponse(ioc, () => clearAllOutputButton!.simulate('click'));
+                simulateKeyPressOnCell(1, { code: 's', ctrlKey: true });
 
-                const newFileContent = await fs.readFile(editor.file.path, 'utf8');
+                await savedPromise.promise;
+
+                // the file now shouldn't have outputs or execution count
+                const newFileContent = await fs.readFile(notebookFile.filePath, 'utf8');
                 assert.notEqual(newFileContent, fileContent, 'File did not change.');
             });
         });
