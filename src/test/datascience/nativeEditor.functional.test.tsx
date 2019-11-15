@@ -37,6 +37,7 @@ import { MockDocumentManager } from './mockDocumentManager';
 import { addCell, closeNotebook, createNewEditor, focusCell, getNativeCellResults, mountNativeWebView, openEditor, runMountedTest, setupWebview } from './nativeEditorTestHelpers';
 import { waitForUpdate } from './reactHelpers';
 import { addContinuousMockData, addMockData, CellPosition, createKeyboardEventForCell, escapePath, findButton, getLastOutputCell, getNativeFocusedEditor, getOutputCell, injectCode, isCellFocused, isCellSelected, srcDirectory, typeCode, verifyCellIndex, verifyHtmlOnCell, waitForMessage, waitForMessageResponse } from './testHelpers';
+import { sleep } from '../core';
 
 use(chaiAsPromised);
 
@@ -1306,7 +1307,7 @@ for _ in range(50):
                 const clearAllOutputButton = findButton(wrapper, NativeEditor, 6);
                 await waitForMessageResponse(ioc, () => clearAllOutputButton!.simulate('click'));
 
-                await waitForUpdate(wrapper, NativeEditor, 1);
+                await sleep(1000);
 
                 verifyHtmlOnCell(wrapper, 'NativeCell', undefined, 0);
                 verifyHtmlOnCell(wrapper, 'NativeCell', undefined, 1);
