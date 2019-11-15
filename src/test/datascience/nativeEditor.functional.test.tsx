@@ -8,13 +8,15 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs-extra';
 import { min } from 'lodash';
 import * as path from 'path';
+import { Provider } from 'react-redux';
+import * as Redux from 'redux';
 import * as sinon from 'sinon';
 import { anything, when } from 'ts-mockito';
 import * as TypeMoq from 'typemoq';
 import { Disposable, TextDocument, TextEditor, Uri, WindowState } from 'vscode';
 import { IApplicationShell, IDocumentManager } from '../../client/common/application/types';
 import { IFileSystem } from '../../client/common/platform/types';
-import { createDeferred } from '../../client/common/utils/async';
+import { createDeferred, sleep, waitForPromise } from '../../client/common/utils/async';
 import { createTemporaryFile } from '../../client/common/utils/fs';
 import { noop } from '../../client/common/utils/misc';
 import { Identifiers } from '../../client/datascience/constants';
@@ -23,21 +25,48 @@ import { JupyterExecutionFactory } from '../../client/datascience/jupyter/jupyte
 import { ICell, IJupyterExecution, INotebookEditorProvider, INotebookExporter } from '../../client/datascience/types';
 import { PythonInterpreter } from '../../client/interpreter/contracts';
 import { CellInput } from '../../datascience-ui/interactive-common/cellInput';
-import { CellOutput } from '../../datascience-ui/interactive-common/cellOutput';
 import { Editor } from '../../datascience-ui/interactive-common/editor';
+import { IStore } from '../../datascience-ui/interactive-common/redux/store';
 import { NativeCell } from '../../datascience-ui/native-editor/nativeCell';
 import { NativeEditor } from '../../datascience-ui/native-editor/nativeEditor';
-import { NativeEditorStateController } from '../../datascience-ui/native-editor/nativeEditorStateController';
 import { IKeyboardEvent } from '../../datascience-ui/react-common/event';
 import { ImageButton } from '../../datascience-ui/react-common/imageButton';
 import { IMonacoEditorState, MonacoEditor } from '../../datascience-ui/react-common/monacoEditor';
 import { waitForCondition } from '../common';
 import { DataScienceIocContainer } from './dataScienceIocContainer';
 import { MockDocumentManager } from './mockDocumentManager';
-import { addCell, closeNotebook, createNewEditor, focusCell, getNativeCellResults, mountNativeWebView, openEditor, runMountedTest, setupWebview } from './nativeEditorTestHelpers';
+import {
+    addCell,
+    closeNotebook,
+    createNewEditor,
+    getNativeCellResults,
+    mountNativeWebView,
+    openEditor,
+    runMountedTest,
+    setupWebview
+} from './nativeEditorTestHelpers';
 import { waitForUpdate } from './reactHelpers';
-import { addContinuousMockData, addMockData, CellPosition, createKeyboardEventForCell, escapePath, findButton, getLastOutputCell, getNativeFocusedEditor, getOutputCell, injectCode, isCellFocused, isCellSelected, srcDirectory, typeCode, verifyCellIndex, verifyHtmlOnCell, waitForMessage, waitForMessageResponse } from './testHelpers';
-import { sleep } from '../core';
+import {
+    addContinuousMockData,
+    addMockData,
+    CellPosition,
+    createKeyboardEventForCell,
+    escapePath,
+    findButton,
+    getLastOutputCell,
+    getNativeFocusedEditor,
+    getOutputCell,
+    injectCode,
+    isCellFocused,
+    isCellMarkdown,
+    isCellSelected,
+    srcDirectory,
+    typeCode,
+    verifyCellIndex,
+    verifyHtmlOnCell,
+    waitForMessage,
+    waitForMessageResponse
+} from './testHelpers';
 
 use(chaiAsPromised);
 
@@ -249,7 +278,12 @@ for _ in range(50):
 
         runMountedTest('Startup and shutdown', async (wrapper) => {
             // Stub the `stat` method to return a dummy value.
-            sinon.stub(ioc.serviceContainer.get<IFileSystem>(IFileSystem), 'stat').resolves({mtime: 0} as any);
+            try {
+                sinon.stub(ioc.serviceContainer.get<IFileSystem>(IFileSystem), 'stat').resolves({mtime: 0} as any);
+            } catch (e) {
+                // tslint:disable-next-line: no-console
+                console.log(`Stub failure ${e}`);
+            }
 
             addMockData(ioc, 'b=2\nb', 2);
             addMockData(ioc, 'c=3\nc', 3);
@@ -276,11 +310,13 @@ for _ in range(50):
             assert.ok(server, 'Server was destroyed on notebook shutdown');
 
             // Reopen, and rerun
+            const newWrapper = await setupWebview(ioc);
+            assert.ok(newWrapper, 'Could not mount a second time');
             editor = await openEditor(ioc, JSON.stringify(notebook));
-            runAllButton = findButton(wrapper, NativeEditor, 0);
+            runAllButton = findButton(newWrapper!, NativeEditor, 0);
             await waitForMessageResponse(ioc, () => runAllButton!.simulate('click'));
-            await waitForUpdate(wrapper, NativeEditor, 15);
-            verifyHtmlOnCell(wrapper, 'NativeCell', `1`, 0);
+            await waitForUpdate(newWrapper!, NativeEditor, 15);
+            verifyHtmlOnCell(newWrapper!, 'NativeCell', `1`, 0);
         },
         () => {
                 // Disable the warning displayed by nodejs when there are too many listeners.
@@ -318,7 +354,7 @@ for _ in range(50):
             assert.equal(imageButtons.length, 6, 'Cell buttons not found');
             const runButton = imageButtons.findWhere(w => w.props().tooltip === 'Run cell');
             assert.equal(runButton.length, 1, 'No run button found');
-            const update = waitForMessage(ioc, InteractiveWindowMessages.RenderComplete);
+            const update = waitForMessage(ioc, InteractiveWindowMessages.ExecutionRendered);
             runButton.simulate('click');
             await update;
             verifyHtmlOnCell(wrapper, 'NativeCell', `1`, 1);
@@ -661,7 +697,7 @@ for _ in range(50):
                 // The 2nd cell should be focused
                 assert.ok(isCellFocused(wrapper, 'NativeCell', 1));
 
-                update = waitForUpdate(wrapper, NativeEditor, 7);
+                update = waitForMessage(ioc, InteractiveWindowMessages.ExecutionRendered);
                 simulateKeyPressOnCell(1, { code: 'Enter', shiftKey: true, editorInfo: undefined });
                 await update;
                 wrapper.update();
@@ -678,7 +714,7 @@ for _ in range(50):
                 // Shift+enter on the last cell, it should behave differently. It should be selected and focused
 
                 // First focus the cell.
-                update = waitForUpdate(wrapper, NativeEditor, 2);
+                update = waitForMessage(ioc, InteractiveWindowMessages.FocusedCellEditor);
                 clickCell(2);
                 simulateKeyPressOnCell(2, { code: 'Enter', editorInfo: undefined });
                 await update;
@@ -686,7 +722,7 @@ for _ in range(50):
                 // The 3rd cell should be focused
                 assert.ok(isCellFocused(wrapper, 'NativeCell', 2));
 
-                update = waitForUpdate(wrapper, NativeEditor, 7);
+                update = waitForMessage(ioc, InteractiveWindowMessages.ExecutionRendered);
                 simulateKeyPressOnCell(2, { code: 'Enter', shiftKey: true, editorInfo: undefined });
                 await update;
                 wrapper.update();
@@ -699,7 +735,7 @@ for _ in range(50):
             });
 
             test('Pressing \'Ctrl+Enter\' on a selected cell executes the cell and cell selection is not changed', async () => {
-                const update = waitForUpdate(wrapper, NativeEditor, 7);
+                const update = waitForMessage(ioc, InteractiveWindowMessages.ExecutionRendered);
                 clickCell(1);
                 simulateKeyPressOnCell(1, { code: 'Enter', ctrlKey: true, editorInfo: undefined });
                 await update;
@@ -715,7 +751,7 @@ for _ in range(50):
                 // Initially 3 cells.
                 assert.equal(wrapper.find('NativeCell').length, 3);
 
-                const update = waitForUpdate(wrapper, NativeEditor, 1);
+                const update = waitForMessage(ioc, InteractiveWindowMessages.FocusedCellEditor);
                 clickCell(1);
                 simulateKeyPressOnCell(1, { code: 'Enter', altKey: true, editorInfo: undefined });
                 await update;
@@ -804,7 +840,7 @@ for _ in range(50):
 
             test('Toggle visibility of output', async () => {
                 // First execute contents of last cell.
-                let update = waitForUpdate(wrapper, NativeEditor, 7);
+                let update = waitForMessage(ioc, InteractiveWindowMessages.ExecutionRendered);
                 clickCell(2);
                 simulateKeyPressOnCell(2, { code: 'Enter', ctrlKey: true, editorInfo: undefined });
                 await update;
@@ -855,16 +891,34 @@ for _ in range(50):
                 clickCell(1);
 
                 // Switch to markdown
+                let update = waitForMessage(ioc, InteractiveWindowMessages.FocusedCellEditor);
                 simulateKeyPressOnCell(1, { code: 'm' });
+                await update;
 
-                // Confirm output cell is rendered and monaco editor is not.
+                // Monaco editor should be rendered and the cell should be markdown
+                assert.ok(isCellFocused(wrapper, 'NativeCell', 1));
+                assert.ok(isCellMarkdown(wrapper, 'NativeCell', 1));
                 assert.equal(
                     wrapper
                         .find(NativeCell)
                         .at(1)
-                        .find(CellOutput).length,
+                        .find(MonacoEditor).length,
                     1
                 );
+
+                // Change the markdown
+                let editor = getNativeFocusedEditor(wrapper);
+                injectCode(editor, 'foo');
+
+                // Switch back to code mode.
+                // First lose focus
+                update = waitForUpdate(wrapper, NativeEditor, 1);
+                simulateKeyPressOnCell(1, { code: 'Escape' });
+                await update;
+
+                // Confirm markdown output is rendered
+                assert.ok(!isCellFocused(wrapper, 'NativeCell', 1));
+                assert.ok(isCellMarkdown(wrapper, 'NativeCell', 1));
                 assert.equal(
                     wrapper
                         .find(NativeCell)
@@ -873,15 +927,8 @@ for _ in range(50):
                     0
                 );
 
-                // Force focus so we can change the text. Use special method
-                // because we can't key down on the editor
-                await focusCell(ioc, wrapper, 1);
-
-                // Change the markdown
-                let editor = getNativeFocusedEditor(wrapper);
-                injectCode(editor, 'foo');
-
-                // Switch back to code mode.
+                // Switch to code
+                update = waitForMessage(ioc, InteractiveWindowMessages.FocusedCellEditor);
                 // At this moment, there's no cell input element, hence send key strokes to the wrapper.
                 const wrapperElement = wrapper
                     .find(NativeCell)
@@ -889,15 +936,10 @@ for _ in range(50):
                     .find('.cell-wrapper')
                     .first();
                 wrapperElement.simulate('keyDown', { key: 'y' });
-                wrapper.update();
+                await update;
 
-                // Confirm editor is rendered .
-                const nativeCell = wrapper.find(NativeCell).at(1);
-                assert.equal(
-                    nativeCell
-                        .find(MonacoEditor).length,
-                    1
-                );
+                assert.ok(isCellFocused(wrapper, 'NativeCell', 1));
+                assert.ok(!isCellMarkdown(wrapper, 'NativeCell', 1));
 
                 // Confirm editor still has the same text
                 editor = getNativeFocusedEditor(wrapper);
@@ -911,9 +953,13 @@ for _ in range(50):
                 // Add, then undo, keep doing at least 3 times and confirm it works as expected.
                 for (let i = 0; i < 3; i += 1) {
                     // Add a new cell
-                    let update = waitForUpdate(wrapper, NativeEditor, 1);
+                    let update = waitForMessage(ioc, InteractiveWindowMessages.FocusedCellEditor);
                     simulateKeyPressOnCell(0, { code: 'a' });
                     await update;
+
+                    // Wait a bit for the time out to try and set focus a second time (this will be
+                    // fixed when we switch to redux)
+                    await sleep(100);
 
                     // There should be 4 cells and first cell is focused.
                     assert.equal(isCellSelected(wrapper, 'NativeCell', 0), false);
@@ -927,6 +973,40 @@ for _ in range(50):
                     simulateKeyPressOnCell(0, { code: 'Escape' });
                     await update;
                     assert.equal(isCellSelected(wrapper, 'NativeCell', 0), true);
+
+                    // Press 'ctrl+z'. This should do nothing
+                    update = waitForUpdate(wrapper, NativeEditor, 1);
+                    simulateKeyPressOnCell(0, { code: 'z', ctrlKey: true });
+                    await waitForPromise(update, 100);
+
+                    // There should be 4 cells and first cell is selected.
+                    assert.equal(isCellSelected(wrapper, 'NativeCell', 0), true);
+                    assert.equal(isCellSelected(wrapper, 'NativeCell', 1), false);
+                    assert.equal(isCellFocused(wrapper, 'NativeCell', 0), false);
+                    assert.equal(isCellFocused(wrapper, 'NativeCell', 1), false);
+                    assert.equal(wrapper.find('NativeCell').length, 4);
+
+                    // Press 'z' to undo.
+                    update = waitForUpdate(wrapper, NativeEditor, 1);
+                    simulateKeyPressOnCell(0, { code: 'z' });
+                    await update;
+
+                    // There should be 3 cells and first cell is selected & nothing focused.
+                    assert.equal(isCellSelected(wrapper, 'NativeCell', 0), true);
+                    assert.equal(isCellSelected(wrapper, 'NativeCell', 1), false);
+                    assert.equal(wrapper.find('NativeCell').length, 3);
+
+                    // Press 'shift+z' to redo
+                    update = waitForUpdate(wrapper, NativeEditor, 1);
+                    simulateKeyPressOnCell(0, { code: 'z', shiftKey: true });
+                    await update;
+
+                    // There should be 4 cells and first cell is selected.
+                    assert.equal(isCellSelected(wrapper, 'NativeCell', 0), true);
+                    assert.equal(isCellSelected(wrapper, 'NativeCell', 1), false);
+                    assert.equal(isCellFocused(wrapper, 'NativeCell', 0), false);
+                    assert.equal(isCellFocused(wrapper, 'NativeCell', 1), false);
+                    assert.equal(wrapper.find('NativeCell').length, 4);
 
                     // Press 'z' to undo.
                     update = waitForUpdate(wrapper, NativeEditor, 1);
@@ -1018,11 +1098,9 @@ for _ in range(50):
         });
 
         suite('Auto Save', () => {
-            let controller: NativeEditorStateController;
             let windowStateChangeHandlers: ((e: WindowState) => any)[] = [];
-            let handleMessageSpy: sinon.SinonSpy<[string, any?], boolean>;
+            let store: Redux.Store<IStore, Redux.AnyAction>;
             setup(async function() {
-                handleMessageSpy = sinon.spy(NativeEditorStateController.prototype, 'handleMessage');
                 initIoc();
 
                 windowStateChangeHandlers = [];
@@ -1032,25 +1110,10 @@ for _ in range(50):
                 // tslint:disable-next-line: no-invalid-this
                 await setupFunction.call(this);
 
-                controller = (wrapper
-                    .find(NativeEditor)
-                    .first()
-                    .instance() as NativeEditor).stateController;
+                store = wrapper.find(Provider).props().store;
+
             });
             teardown(() => sinon.restore());
-
-            /**
-             * Wait for a particular message to be received by the editor component.
-             * If message isn't reiceived within a time out, then reject with a timeout error message.
-             *
-             * @param {string} message
-             * @param {number} timeout
-             * @returns {Promise<void>}
-             */
-            async function waitForMessageReceivedEditorComponent(message: string, timeout: number = 5000): Promise<void> {
-                const errorMessage = `Timeout waiting for message ${message}`;
-                await waitForCondition(async () => handleMessageSpy.calledWith(message, sinon.match.any), timeout, errorMessage);
-            }
 
             /**
              * Wait for notebook to be marked as dirty (within a timeout of 5s).
@@ -1059,10 +1122,8 @@ for _ in range(50):
              * @returns {Promise<void>}
              */
             async function waitForNotebookToBeDirty(): Promise<void> {
-                // Wait for the notebook to be marked as dirty (the NotebookDirty message will be sent).
-                await waitForMessageReceivedEditorComponent(InteractiveWindowMessages.NotebookDirty, 5_000);
                 // Wait for the state to get updated.
-                await waitForCondition(async () => controller.getState().dirty === true, 1_000, `Timeout waiting for dirty state to get updated to true`);
+                await waitForCondition(async () => store.getState().main.dirty === true, 1_000, `Timeout waiting for dirty state to get updated to true`);
             }
 
             /**
@@ -1072,11 +1133,8 @@ for _ in range(50):
              * @returns {Promise<void>}
              */
             async function waitForNotebookToBeClean(): Promise<void> {
-                // Wait for the notebook to be marked as dirty (the NotebookDirty message will be sent).
-                await waitForMessageReceivedEditorComponent(InteractiveWindowMessages.NotebookClean, 5_000);
-
                 // Wait for the state to get updated.
-                await waitForCondition(async () => controller.getState().dirty === false, 2_000, `Timeout waiting for dirty state to get updated to false`);
+                await waitForCondition(async () => store.getState().main.dirty === false, 2_000, `Timeout waiting for dirty state to get updated to false`);
             }
 
             /**
@@ -1085,7 +1143,7 @@ for _ in range(50):
              * @param {number} cellIndex
              */
             async function modifyNotebook() {
-                // (Add a cell into the UI and wait for it to render)
+                // (Add a cell into the UI)
                 await addCell(wrapper, ioc, 'a', false);
             }
 
@@ -1148,7 +1206,7 @@ for _ in range(50):
                 when(ioc.mockedWorkspaceConfig.get('autoSave', 'off')).thenReturn('off');
                 when(ioc.mockedWorkspaceConfig.get<number>('autoSaveDelay', anything())).thenReturn(1000);
                 // Update the settings and wait for the component to receive it and process it.
-                const promise = waitForMessageReceivedEditorComponent(InteractiveWindowMessages.UpdateSettings, 1_000);
+                const promise = waitForMessage(ioc, InteractiveWindowMessages.UpdateSettings);
                 ioc.forceSettingsChanged(ioc.getSettings().pythonPath);
                 await promise;
 
