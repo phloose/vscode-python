@@ -40,7 +40,7 @@ Copy/paste the output in the "Console" tab in the "Developer Tools" panel (Help 
 Toggle Developer Tools). For better details, run the "Enable source map support for
 extension debugging" command in VS Code at least once beforehand.
 ------------------------------------------------------------------------------------------------->
-MS Engineering Team: @rchiodo, @IanMatthewHuff, @DavidKutu, @DonJayamanne, @greazer
+Microsoft Data Science for VS Code Engineering Team: @rchiodo, @IanMatthewHuff, @DavidKutu, @DonJayamanne, @greazer
 
 
 
