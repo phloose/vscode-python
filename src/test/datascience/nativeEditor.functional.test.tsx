@@ -6,7 +6,6 @@ import * as chaiAsPromised from 'chai-as-promised';
 import { ReactWrapper } from 'enzyme';
 import { EventEmitter } from 'events';
 import * as fs from 'fs-extra';
-import { min } from 'lodash';
 import * as path from 'path';
 import { Provider } from 'react-redux';
 import * as Redux from 'redux';
