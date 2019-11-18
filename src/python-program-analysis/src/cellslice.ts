@@ -65,6 +65,6 @@ export class CellSlice {
     }
 
     readonly cell: Cell;
-    readonly executionTime: Date;
+    readonly executionTime: Date | undefined;
     private _slice: LocationSet;
 }

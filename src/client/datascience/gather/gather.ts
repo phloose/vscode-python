@@ -1,6 +1,7 @@
 import { Cell as IGatherCell, CellSlice, DataflowAnalyzer, ExecutionLogSlicer } from '../../../python-program-analysis/src';
 
 import { inject, injectable } from 'inversify';
+import * as uuid from 'uuid/v4';
 import { IApplicationShell, ICommandManager } from '../../common/application/types';
 import { traceInfo } from '../../common/logger';
 import { IConfigurationService, IDisposableRegistry } from '../../common/types';
@@ -61,8 +62,8 @@ export class GatherExecution implements IGatherExecution {
         const defaultCellMarker = this.configService.getSettings().datascience.defaultCellMarker || Identifiers.DefaultCodeCellMarker;
 
         // Call internal slice method
-        const slices = this._executionSlicer.sliceAllExecutions(gatherCell.persistentId);
-        const program = slices.length > 0 ? slices[0].cellSlices.reduce(concat, '').replace(/#%%/g, defaultCellMarker) : '';
+        const slice = this._executionSlicer.sliceLatestExecution(gatherCell.persistentId);
+        const program = slice.cellSlices.reduce(concat, '').replace(/#%%/g, defaultCellMarker);
 
         // Add a comment at the top of the file explaining what gather does
         const descriptor = localize.DataScience.gatheredScriptDescription();
@@ -100,7 +101,7 @@ export class GatherExecution implements IGatherExecution {
  */
 function concat(existingText: string, newText: CellSlice): string {
     // Include our cell marker so that cell slices are preserved
-    return `${existingText}#%%\n${newText.textSliceLines}\n\n`;
+    return `${existingText}#%%\n${newText.cell.text}\n`;
 }
 
 /**
@@ -114,11 +115,9 @@ function convertVscToGatherCell(cell: IVscCell): IGatherCell | undefined {
             // tslint:disable-next-line no-unnecessary-local-variable
             text: cell.data.source,
 
-            // This may need to change for native notebook support since in the original Gather code this refers to the number of times that this same cell was executed
             executionCount: cell.data.execution_count,
-            executionEventId: cell.id, // This is unique for now, so feed it in
+            executionEventId: uuid(),
 
-            // This may need to change for native notebook support, since this is intended to persist in the metadata for a notebook that is saved and then re-loaded
             persistentId: cell.id,
             hasError: cell.state === CellState.error
             // tslint:disable-next-line: no-any
