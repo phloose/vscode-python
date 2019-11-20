@@ -227,6 +227,11 @@ function getFunctionCodeLens(file: Uri, functionsAndSuites: FunctionsAndSuites,
             title: `${getTestStatusIcons(functions)}${constants.Text.CodeLensDebugUnitTest} (Multiple)`,
             command: constants.Commands.Tests_Picker_UI_Debug,
             arguments: [undefined, CommandSource.codelens, file, functions]
+        }),
+        new CodeLens(range, {
+            title: `${getTestStatusIcons(functions)}Run All`,
+            command: constants.Commands.Tests_Run_Parametrized,
+            arguments: [undefined, CommandSource.codelens, file, functions]
         })
     ];
 }
