@@ -16,7 +16,7 @@ import { onItemSelected, Type } from '../../../client/testing/display/picker';
 
 suite('Unit Tests - Picker (execution of commands)', () => {
     getNamesAndValues<Type>(Type).forEach(item => {
-        getNamesAndValues<CommandSource>(Type).forEach(commandSource => {
+        getNamesAndValues<CommandSource>(CommandSource).forEach(commandSource => {
             [true, false].forEach(debug => {
                 test(`Invoking command for selection ${item.name} from ${commandSource.name} (${debug ? 'Debug' : 'No debug'})`, async () => {
                     const commandManager = mock(CommandManager);
@@ -24,6 +24,14 @@ suite('Unit Tests - Picker (execution of commands)', () => {
 
                     const testFunction = 'some test Function';
                     const selection = { type: item.value, fn: { testFunction } };
+                    // Getting the value of CommandSource.commandPalette in getNamesAndValues(CommandSource)
+                    // fails because the names and values object is build by accessing the CommandSource enum
+                    // properties by value. In case of commandpalette the property is commandPalette and the
+                    // respective value is commandpalette which do not match and thus return undefined for value.
+                    if (commandSource.name === 'commandpalette') {
+                        commandSource.value = CommandSource.commandPalette;
+                    }
+
                     onItemSelected(instance(commandManager), commandSource.value, workspaceUri, selection as any, debug);
 
                     switch (selection.type) {
