@@ -23,7 +23,14 @@ suite('Unit Tests - Picker (execution of commands)', () => {
                     const workspaceUri = Uri.file(__filename);
 
                     const testFunction = 'some test Function';
-                    const selection = { type: item.value, fn: { testFunction } };
+                    const testFunctions = [{
+                        name: 'some_name',
+                        nameToRun: 'some_name_to_run',
+                        time: 0,
+                        resource: workspaceUri
+                    }];
+                    const selection = { type: item.value, fn: { testFunction }, fns: testFunctions };
+
                     // Getting the value of CommandSource.commandPalette in getNamesAndValues(CommandSource)
                     // fails because the names and values object is build by accessing the CommandSource enum
                     // properties by value. In case of commandpalette the property is commandPalette and the
@@ -46,6 +53,10 @@ suite('Unit Tests - Picker (execution of commands)', () => {
                         }
                         case Type.RunAll: {
                             verify(commandManager.executeCommand(Commands.Tests_Run, undefined, commandSource.value, workspaceUri, undefined)).once();
+                            return;
+                        }
+                        case Type.RunParametrized: {
+                            verify(commandManager.executeCommand(Commands.Tests_Run_Parametrized, undefined, commandSource.value, workspaceUri, selection.fns, debug)).once();
                             return;
                         }
                         case Type.ReDiscover: {
