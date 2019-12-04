@@ -21,6 +21,7 @@ import { createEmptyResults } from '../results';
 
 // tslint:disable:no-any
 
+// tslint:disable-next-line: max-func-body-length
 suite('Testing - TestDisplay', () => {
 
     const wkspace = Uri.file(__dirname);
@@ -58,6 +59,11 @@ suite('Testing - TestDisplay', () => {
             [match: string]: { fullPath: string; fileName: string };
             mismatch: { fullPath: string; fileName: string };
         };
+        let platformPaths: {
+            [win32: string]: { fullPath: string; fileName: string };
+            linux: { fullPath: string; fileName: string };
+            darwin: { fullPath: string; fileName: string };
+        };
 
         function codeLensTestFunctions(testfunctions?: TestFunction[]): TestFunction[] {
             if (!testfunctions) {
@@ -79,6 +85,20 @@ suite('Testing - TestDisplay', () => {
                     fileName: 'testfile/to/path'
                 }
             };
+            platformPaths = {
+                win32: {
+                    fullPath: 'C:\\path\\to\\testfile',
+                    fileName: 'c:\\path\\to\\testfile'
+                },
+                linux: {
+                    fullPath: 'path/to/testfile',
+                    fileName: 'path/to/testfile'
+                },
+                darwin: {
+                    fullPath: 'path/to/testfile',
+                    fileName: 'path/to/testfile'
+                }
+            };
             when(mockedServiceContainer.get<IFileSystem>(IFileSystem)).thenReturn(new FileSystem());
             when(mockedTestCollectionStorage.getTests(wkspace)).thenReturn(tests);
             when(mockedAppShell.showQuickPick(anything(), anything())).thenResolve();
@@ -97,6 +117,23 @@ suite('Testing - TestDisplay', () => {
                 } else {
                     verify(mockedAppShell.showQuickPick(anything(), anything())).never();
                 }
+            });
+        });
+
+        ['win32', 'linux', 'darwin'].forEach(platform => {
+            test(`#8627 codelens on parametrized tests does not open dropdown picker on windows (platform=>${platform})`, function () {
+
+                if (platform !== process.platform) {
+                    // tslint:disable-next-line: no-invalid-this
+                    this.skip();
+                }
+
+                const { fullPath, fileName } = platformPaths[platform];
+                fullPathInTests(tests, fullPath);
+
+                testDisplay.displayFunctionTestPickerUI(CommandSource.commandPalette, wkspace, 'rootDirectory', Uri.parse(fileName), codeLensTestFunctions());
+
+                verify(mockedAppShell.showQuickPick(anything(), anything())).once();
             });
         });
     });
