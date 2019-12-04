@@ -3,20 +3,23 @@
 
 'use strict';
 
-import { anything, instance, mock, resetCalls, verify, when } from 'ts-mockito';
+import { anything, instance, mock, verify, when } from 'ts-mockito';
 import { Uri } from 'vscode';
 import { ApplicationShell } from '../../../client/common/application/applicationShell';
 import { CommandManager } from '../../../client/common/application/commandManager';
-import { IApplicationShell } from '../../../client/common/application/types';
+import { IApplicationShell, ICommandManager } from '../../../client/common/application/types';
 import { Commands } from '../../../client/common/constants';
 import { FileSystem } from '../../../client/common/platform/fileSystem';
 import { IFileSystem } from '../../../client/common/platform/types';
 import { getNamesAndValues } from '../../../client/common/utils/enum';
 import { ServiceContainer } from '../../../client/ioc/container';
+import { IServiceContainer } from '../../../client/ioc/types';
 import { CommandSource } from '../../../client/testing/common/constants';
 import { TestCollectionStorageService } from '../../../client/testing/common/services/storageService';
 import { ITestCollectionStorageService, TestFunction, Tests, TestsToRun } from '../../../client/testing/common/types';
 import { onItemSelected, TestDisplay, Type } from '../../../client/testing/display/picker';
+import { ITestDisplay } from '../../../client/testing/types';
+import { createEmptyResults } from '../results';
 
 // tslint:disable:no-any
 
@@ -87,13 +90,23 @@ suite('Unit Tests - Picker (execution of commands)', () => {
     });
 });
 
-suite('Unit Tests - Picker (TestDisplay)', () => {
+suite('Testing - TestDisplay', () => {
 
-    let mockedCommandManager: CommandManager;
-    let mockedServiceContainer: ServiceContainer;
-    let mockedTestCollectionStorage: TestCollectionStorageService;
-    let mockedAppShell: ApplicationShell;
     const wkspace = Uri.file(__dirname);
+    let mockedCommandManager: ICommandManager;
+    let mockedServiceContainer: IServiceContainer;
+    let mockedTestCollectionStorage: ITestCollectionStorageService;
+    let mockedAppShell: IApplicationShell;
+    let mockedFileSytem: IFileSystem;
+    let testDisplay: ITestDisplay;
+
+    function fullPathInTests(collectedTests: Tests, fullpath?: string): Tests {
+        collectedTests.testFiles = [{
+            fullPath: fullpath ? fullpath : 'path/to/testfile',
+            ...anything()
+        }];
+        return collectedTests;
+    }
 
     setup(() => {
         mockedCommandManager = mock(CommandManager);
@@ -104,49 +117,45 @@ suite('Unit Tests - Picker (TestDisplay)', () => {
             .thenReturn(instance(mockedTestCollectionStorage));
         when(mockedServiceContainer.get<IApplicationShell>(IApplicationShell))
             .thenReturn(instance(mockedAppShell));
+
+        testDisplay = new TestDisplay(instance(mockedServiceContainer), instance(mockedCommandManager));
     });
-    teardown(() => {
-        resetCalls(mockedCommandManager);
-        resetCalls(mockedServiceContainer);
-        resetCalls(mockedTestCollectionStorage);
-        resetCalls(mockedAppShell);
-    });
-    [true, false].forEach(debug => {
-        test(`Show picker dropdown for test selection on code lenses of parametrized tests (Debug: ${debug}) (#8627)`, () => {
-            // See #8627: Paths didn't match so TestDisplay.displayFunctionTestPickerUI did not call this.appShell.ShowQuickPick
-            let fullPath: string;
-            let fileName: Uri;
-            if (process.platform === 'win32') {
-                fullPath = 'C:\\path\\to\\testfile';
-                fileName = Uri.file('c:\\path\\to\\testfile');
-            } else {
-                fullPath = '/path/to/test';
-                fileName = Uri.file('/path/to/test');
+
+    suite('displayFunctionTestPickerUI', () => {
+
+        const tests = createEmptyResults();
+        const fileName = Uri.file('path/to/testfile');
+
+        function codeLensTestFunctions(testfunctions?: TestFunction[]): TestFunction[] {
+            if (!testfunctions) {
+                return [{ ...anything() }];
             }
-            // Normally 'tests' contains all tests of a workspace. Since we are only interested
-            // in the 'fullPath' of a single test file the rest doesn't need to be set.
-            const tests: Tests = {
-                testFiles: [{
-                    fullPath: fullPath,
-                    ...anything()
-                }],
-                testFunctions: [],  // We don't care about the single testFunctions of the whole workspace so can be empty
-                ...anything()
-            };
-            // testfunctions belonging to a code lens of a parametrized test function.
-            const codelensTestFunctions: TestFunction[] = [{
-                ...anything()
-            }];
-            when(mockedServiceContainer.get<IFileSystem>(IFileSystem)).thenReturn(new FileSystem());
+            const functions: TestFunction[] = [];
+            testfunctions.forEach(fn => functions.push(fn));
+            return functions;
+        }
+
+        setup(() => {
+            mockedFileSytem = mock(FileSystem);
+            when(mockedServiceContainer.get<IFileSystem>(IFileSystem)).thenReturn(instance(mockedFileSytem));
             when(mockedTestCollectionStorage.getTests(wkspace)).thenReturn(tests);
             when(mockedAppShell.showQuickPick(anything(), anything())).thenResolve();
+        });
 
-            const testDisplay = new TestDisplay(instance(mockedServiceContainer), instance(mockedCommandManager));
-            testDisplay.displayFunctionTestPickerUI(
-                CommandSource.commandPalette, wkspace, 'rootDirectory', fileName, codelensTestFunctions, debug
-            );
+        [true, false].forEach(arePathSame => {
+            test(`#8627 codelens on parametrized tests does not open dropdown picker on windows (FileSystem.arePathSame=>${arePathSame})`, () => {
 
-            verify(mockedAppShell.showQuickPick(anything(), anything())).once();
+                fullPathInTests(tests);
+                when(mockedFileSytem.arePathsSame(anything(), anything())).thenReturn(arePathSame);
+
+                testDisplay.displayFunctionTestPickerUI(CommandSource.commandPalette, wkspace, 'rootDirectory', fileName, codeLensTestFunctions());
+
+                if (arePathSame) {
+                    verify(mockedAppShell.showQuickPick(anything(), anything())).once();
+                } else {
+                    verify(mockedAppShell.showQuickPick(anything(), anything())).never();
+                }
+            });
         });
     });
 });
