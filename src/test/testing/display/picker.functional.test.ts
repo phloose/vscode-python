@@ -54,16 +54,31 @@ suite('Testing - TestDisplay', () => {
 
     suite('displayFunctionTestPickerUI', () => {
 
-        const tests = createEmptyResults();
-        let paths: {
-            [match: string]: { fullPath: string; fileName: string };
-            mismatch: { fullPath: string; fileName: string };
+        const paths: { [key: string]: any } = {
+            match: {
+                fullPath: '/path/to/testfile',
+                fileName: '/path/to/testfile'
+            },
+            mismatch: {
+                fullPath: '/path/to/testfile',
+                fileName: '/testfile/to/path'
+            }
         };
-        let platformPaths: {
-            [win32: string]: { fullPath: string; fileName: string };
-            linux: { fullPath: string; fileName: string };
-            darwin: { fullPath: string; fileName: string };
+        const platformPaths: { [key: string]: any } = {
+            win32: {
+                fullPath: 'C:\\path\\to\\testfile',
+                fileName: 'c:\\path\\to\\testfile'
+            },
+            linux: {
+                fullPath: '/path/to/testfile',
+                fileName: '/path/to/testfile'
+            },
+            darwin: {
+                fullPath: '/path/to/testfile',
+                fileName: '/path/to/testfile'
+            }
         };
+        let tests: Tests;
 
         function codeLensTestFunctions(testfunctions?: TestFunction[]): TestFunction[] {
             if (!testfunctions) {
@@ -75,30 +90,7 @@ suite('Testing - TestDisplay', () => {
         }
 
         setup(() => {
-            paths = {
-                match: {
-                    fullPath: 'path/to/testfile',
-                    fileName: 'path/to/testfile'
-                },
-                mismatch: {
-                    fullPath: 'path/to/testfile',
-                    fileName: 'testfile/to/path'
-                }
-            };
-            platformPaths = {
-                win32: {
-                    fullPath: 'C:\\path\\to\\testfile',
-                    fileName: 'c:\\path\\to\\testfile'
-                },
-                linux: {
-                    fullPath: 'path/to/testfile',
-                    fileName: 'path/to/testfile'
-                },
-                darwin: {
-                    fullPath: 'path/to/testfile',
-                    fileName: 'path/to/testfile'
-                }
-            };
+            tests = createEmptyResults();
             when(mockedServiceContainer.get<IFileSystem>(IFileSystem)).thenReturn(new FileSystem());
             when(mockedTestCollectionStorage.getTests(wkspace)).thenReturn(tests);
             when(mockedAppShell.showQuickPick(anything(), anything())).thenResolve();
@@ -110,7 +102,7 @@ suite('Testing - TestDisplay', () => {
                 const { fullPath, fileName } = paths[matchType];
                 fullPathInTests(tests, fullPath);
 
-                testDisplay.displayFunctionTestPickerUI(CommandSource.commandPalette, wkspace, 'rootDirectory', Uri.parse(fileName), codeLensTestFunctions());
+                testDisplay.displayFunctionTestPickerUI(CommandSource.commandPalette, wkspace, 'rootDirectory', Uri.file(fileName), codeLensTestFunctions());
 
                 if (matchType === 'match') {
                     verify(mockedAppShell.showQuickPick(anything(), anything())).once();
@@ -131,7 +123,7 @@ suite('Testing - TestDisplay', () => {
                 const { fullPath, fileName } = platformPaths[platform];
                 fullPathInTests(tests, fullPath);
 
-                testDisplay.displayFunctionTestPickerUI(CommandSource.commandPalette, wkspace, 'rootDirectory', Uri.parse(fileName), codeLensTestFunctions());
+                testDisplay.displayFunctionTestPickerUI(CommandSource.commandPalette, wkspace, 'rootDirectory', Uri.file(fileName), codeLensTestFunctions());
 
                 verify(mockedAppShell.showQuickPick(anything(), anything())).once();
             });

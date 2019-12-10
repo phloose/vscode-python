@@ -123,8 +123,8 @@ suite('Testing - TestDisplay', () => {
 
     suite('displayFunctionTestPickerUI', () => {
 
-        const tests = createEmptyResults();
         const fileName = Uri.file('path/to/testfile');
+        let tests: Tests;
 
         function codeLensTestFunctions(testfunctions?: TestFunction[]): TestFunction[] {
             if (!testfunctions) {
@@ -136,6 +136,7 @@ suite('Testing - TestDisplay', () => {
         }
 
         setup(() => {
+            tests = createEmptyResults();
             mockedFileSytem = mock(FileSystem);
             when(mockedServiceContainer.get<IFileSystem>(IFileSystem)).thenReturn(instance(mockedFileSytem));
             when(mockedTestCollectionStorage.getTests(wkspace)).thenReturn(tests);
